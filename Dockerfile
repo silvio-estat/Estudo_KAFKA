@@ -21,6 +21,7 @@ RUN apt-get update && apt-get upgrade -y && \
         wget \
         curl \
         net-tools \
+        mlocate \
         iputils-ping \
         vim \
         unzip \
