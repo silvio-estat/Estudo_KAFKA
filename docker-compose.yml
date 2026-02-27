@@ -1,64 +1,138 @@
+# Versão do formato do arquivo docker-compose (versão 3.8 é compatível com Docker Compose v1.27.0+)
 #version: '3.8'
 
+# Seção que define os serviços (containers) que serão executados
 services:
+  # ===========================================
+  # SERVIÇO 1: ZOOKEEPER
+  # ===========================================
+  # O ZooKeeper é um serviço de coordenaçãocentralizado para sistemas distribuídos.
+  # O Kafka depende do ZooKeeper para gerenciar metadados (líderes de partição, configurações, etc.)
   zookeeper:
+    # Imagem oficial do ZooKeeper da Confluent Platform versão 7.5.0
     image: confluentinc/cp-zookeeper:7.5.0
+    # Nome do container para facilitar referência
     container_name: zookeeper
+    # Variáveis de ambiente para configuração do ZooKeeper
     environment:
+      # Porta que o cliente ZooKeeper usa para conectar (padrão 2181)
       ZOOKEEPER_CLIENT_PORT: 2181
+      # Tempo base em milissegundos usado para tick (controla heartbeats e timeouts)
       ZOOKEEPER_TICK_TIME: 2000
+    # Mapeamento de portas do container para o host (host:container)
     ports:
+      # Porta 2181 do host mapeia para 2181 do container (client port)
       - "2181:2181"
+    # Volumes persistentes para сохраня dados do ZooKeeper entre reinicializações
     volumes:
+      # Volume nomeado para dados do ZooKeeper
       - zookeeper_data:/var/lib/zookeeper/data
+      # Volume nomeado para logs de transação do ZooKeeper
       - zookeeper_log:/var/lib/zookeeper/log
+    # Rede específica para comunicação entre os serviços
     networks:
       - kafka-network
 
+  # ===========================================
+  # SERVIÇO 2: KAFKA BROKER
+  # ===========================================
+  # O Kafka Broker é o servidor principal que armazena e distribui mensagens
   kafka:
+    # Imagem oficial do Kafka da Confluent Platform versão 7.5.0
     image: confluentinc/cp-kafka:7.5.0
+    # Nome do container
     container_name: kafka
+    # Define dependência - Kafka só inicia após ZooKeeper estar pronto
     depends_on:
       - zookeeper
+    # Portas expostas para acesso externo
     ports:
+      # Porta 9092: usada por clientes Kafka para conexão interna (dentro da rede Docker)
       - "9092:9092"
+      # Porta 9093: usada por clientes Kafka para conexão externa (do host/localhost)
       - "9093:9093"
+    # Variáveis de ambiente para configuração do Kafka
     environment:
+      # ID único do broker no cluster (cada broker deve ter ID único)
       KAFKA_BROKER_ID: 1
+      # Endereço de conexão do ZooKeeper (formato: hostname:porta)
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      # Endereços anunciados aos clientes para conexão
+      # PLAINTEXT://kafka:9092 - para conexões internas na rede Docker
+      # PLAINTEXT_HOST://localhost:9093 - para conexões externas do host
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
+      # Mapeamento de protocolos de segurança para cada listener
+      # PLAINTEXT:PLAINTEXT = listener PLAINTEXT usa protocolo PLAINTEXT (sem criptografia)
+      # PLAINTEXT_HOST:PLAINTEXT = listener PLAINTEXT_HOST usa protocolo PLAINTEXT
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      # Nome do listener usado para comunicação entre brokers (necessário para cluster com múltiplos brokers)
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      # Fator de replicação para o tópico de offsets (deve ser 1 em setup de broker único)
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      # Número mínimo de réplicas in-sync (ISR) para transações
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      # Fator de replicação para o log de transações
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      # Diretório onde os logs (mensagens) do Kafka serão armazenados
       KAFKA_LOG_DIRS: /var/lib/kafka/data
+      # Habilita criação automática de tópicos quando clientes tentam enviar/consumir de tópicos inexistentes
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      # Habilita deleção de tópicos (requer配置 adicional no broker)
       KAFKA_DELETE_TOPICS_ENABLE: "true"
+    # Volume persistente para dados do Kafka
     volumes:
+      # Volume nomeado para dados do Kafka (logs de mensagens)
       - kafka_data:/var/lib/kafka/data
+    # Rede que o container participa
     networks:
       - kafka-network
 
+  # ===========================================
+  # SERVIÇO 3: KAFKA-UI (Interface Gráfica)
+  # ===========================================
+  # Interface web para gerenciar e monitorar o Kafka (tópicos, mensagens, consumidores, etc.)
   kafka-ui:
+    # Imagem oficial do Kafka-UI da Provectus Labs (versão latest)
     image: provectuslabs/kafka-ui:latest
+    # Nome do container
     container_name: kafka-ui
+    # Dependência - Kafka-UI espera o Kafka estar disponível
     depends_on:
       - kafka
+    # Porta exposta para interface web
     ports:
+      # Porta 8081 do host mapeia para 8080 do container (porta padrão do Kafka-UI)
       - "8081:8080"
+    # Configurações do cluster Kafka no Kafka-UI
     environment:
+      # Nome do cluster Kafka exibido na interface
       KAFKA_CLUSTERS_0_NAME: local
+      # Endereço do broker Kafka para conexão (usando nome do serviço interno)
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      # Endereço do ZooKeeper para conexão (para alcune funcionalidades)
       KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    # Rede de comunicação
     networks:
       - kafka-network
 
+# ===========================================
+# VOLUMES NAMED (Persistência de Dados)
+# ===========================================
+# Volumes nomeados permitem que dados persistam mesmo após containers serem removidos
+# Docker gerencia esses volumes automaticamente
 volumes:
+  # Dados persistentes do ZooKeeper
   zookeeper_data:
+  # Logs de transação do ZooKeeper
   zookeeper_log:
+  # Dados do Kafka (mensagens armazenadas)
   kafka_data:
 
+# ===========================================
+# REDES
+# ===========================================
+# Define redes customizadas para isolamento e comunicação entre containers
 networks:
+  # Rede tipo bridge permite comunicação entre containers pelo nome do serviço
   kafka-network:
     driver: bridge
